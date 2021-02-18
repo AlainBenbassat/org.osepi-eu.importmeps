@@ -1,22 +1,7 @@
 <?php
 
 class CRM_Importmeps_Helper {
-  public function createConfig() {
-    $this->createContactType('Organization', 'ep_delegation', 'EP Delegation');
-    $this->createContactType('Organization', 'ep_committee', 'EP Committee');
-    $this->createContactType('Organization', 'ep_group', 'EP Group');
-    $this->createContactType('Organization', 'ep_intergroup', 'EP Intergroup');
-
-    $this->createCountryGroups();
-    $this->createRelationships();
-
-    $this->importEpOrg('tmp_ep_delegations', 'ep_delegation');
-    $this->importEpOrg('tmp_ep_committees', 'ep_committee');
-    $this->importEpOrg('tmp_ep_groups', 'ep_group');
-    $this->importEpOrg('tmp_ep_intergroups', 'ep_intergroup');
-  }
-
-  public function importEpOrg($tableName, $contactSubtype) {
+  public function importOrg($tableName, $contactSubtype) {
     $sql = "select * from $tableName";
     $dao = CRM_Core_DAO::executeQuery($sql);
     while ($dao->fetch()) {
@@ -36,54 +21,14 @@ class CRM_Importmeps_Helper {
     }
   }
 
-  public function analyze() {
-    $txt = [];
-
-    $sql = "select * from tmp_persons";
-    $dao = CRM_Core_DAO::executeQuery($sql);
-    while ($dao->fetch()) {
-      $sqlPerson = "select count(id) from civicrm_contact where is_deleted = 0 and first_name = %1 and last_name = %2";
-      $sqlPersonParams = [
-        1 => [$dao->first_name, 'String'],
-        2 => [$dao->last_name, 'String'],
-      ];
-      $n = CRM_Core_DAO::singleValueQuery($sqlPerson, $sqlPersonParams);
-      if ($n > 0) {
-        $txt[] = $n . ': ' . $dao->first_name . ' ' . $dao->last_name . ($n > 1 ? ' - DEDUPE THIS CONTACT!!!' : '');
-      }
-    }
-
-    sort($txt);
-    return implode('<br>', $txt);
-  }
-
-  public static function importPersons(CRM_Queue_TaskContext $ctx, $id) {
-    $helper = new CRM_Importmeps_Helper();
-
-    try {
-      // get the contact
-      $sql = "select * from tmp_persons where contact_id = $id";
-      $dao = CRM_Core_DAO::executeQuery($sql);
-      $dao->fetch();
-
-      // does the contact exist?
-      $contact = $helper->createOrGetPerson($dao->prefix, $dao->first_name, $dao->last_name);
-
-      // check additional stuff
-      $helper->checkEmail($contact['id'], $dao->email);
-      $helper->checkPhone($contact['id'], $dao->phone);
-      $helper->checkWorkAddress($contact['id'], $dao->street_address, $dao->supplemental_address1, $dao->postal_code, $dao->city);
-      $helper->checkCountryOfRepresentation($contact['id'], $dao->country_of_representation);
-      $helper->checkTwitter($contact['id'], $dao->twitter);
-
-      // add relationships
-      $helper->checkRelationships($contact['id'], $dao->first_name, $dao->last_name);
-    }
-    catch (Exception $e) {
-      watchdog('import MEPs', $e->getMessage());
-    }
-
-    return TRUE;
+  public function checkEmployer($contactId, $jobTitle, $currentEmployerId) {
+    $params = [
+      'id' => $contactId,
+      'job_title' => $jobTitle,
+      'employer_id' => $currentEmployerId,
+      'sequential' => 1,
+    ];
+    $result = civicrm_api3('Contact', 'create', $params);
   }
 
   public function checkCountryOfRepresentation($contactId, $countryOfRepresentation) {
@@ -166,7 +111,12 @@ class CRM_Importmeps_Helper {
     }
   }
 
+  /**
+   * TODO Refactor so it's not dependend on tmp_ep_members!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   */
   public function checkRelationships($contactId, $firstName, $lastName) {
+    $config = new CRM_Importmeps_Config();
+
     $sql = "select * from tmp_ep_members where first_name = %1 and last_name = %2";
     $sqlParams = [
       1 => [$firstName, 'String'],
@@ -175,13 +125,13 @@ class CRM_Importmeps_Helper {
 
     $dao = CRM_Core_DAO::executeQuery($sql, $sqlParams);
     while ($dao->fetch()) {
-      list($nameAB, $labelAB, $nameBA, $labelBA) = $this->generateRelName($dao->role);
+      [$nameAB, $labelAB, $nameBA, $labelBA] = $config->generateRelName($dao->role);
 
       // check if the relationship exists
       $params = [
         'contact_id_a' => $contactId,
         'contact_id_b' => $this->getEpOrgId($dao->name, $dao->type),
-        'relationship_type_id' => $this->createOrGetRelationshipType(['name_a_b' => $nameAB, 'name_b_a' => $nameBA])['id'],
+        'relationship_type_id' => $config->createOrGetRelationshipType(['name_a_b' => $nameAB, 'name_b_a' => $nameBA])['id'],
         'is_active' => 1,
       ];
       $result = civicrm_api3('Relationship', 'get', $params);
@@ -210,12 +160,13 @@ class CRM_Importmeps_Helper {
     $result = civicrm_api3('Contact', 'get', $params);
     if ($result['count'] == 0) {
       // create the contact
-      $params['source'] = 'IMPORT December 2020';
-      $params['job_title'] = 'MEP';
-      $params['employer_id'] = 414;
+      $params['source'] = 'DODS Bulk Import - new contact';
       return civicrm_api3('Contact', 'create', $params);
     }
     elseif ($result['count'] == 1) {
+      // update the source
+      CRM_Core_DAO::executeQuery("update civicrm_contact set source = 'DODS Bulk Import - updated contact' where source not like 'DODS Bulk Import%' and id = " . $result['values'][0]['id']);
+
       // return the existing contact
       return $result['values'][0];
     }
@@ -223,67 +174,6 @@ class CRM_Importmeps_Helper {
       // more than 1
       throw new Exception("Dedupe $firstName $lastName");
     }
-  }
-
-  public function createCountryGroups() {
-    $parentId = $this->createOrGetGroup('Countries of Representation', 0)['id'];
-    $sql = "select distinct  country_of_representation FROM tmp_persons order by 1";
-    $dao = CRM_Core_DAO::executeQuery($sql);
-    while ($dao->fetch()) {
-      $this->createOrGetGroup($dao->country_of_representation, $parentId);
-    }
-  }
-
-  public function createRelationships() {
-    $sql = "select role from tmp_ep_roles order by 1";
-    $dao = CRM_Core_DAO::executeQuery($sql);
-    while ($dao->fetch()) {
-      list($nameAB, $labelAB, $nameBA, $labelBA) = $this->generateRelName($dao->role);
-      $params = [
-        'name_a_b' => $nameAB,
-        'label_a_b' => $labelAB,
-        'name_b_a' => $nameBA,
-        'label_b_a' => $labelBA,
-        'contact_type_a' => 'Individual',
-        'contact_type_b' => 'Organization',
-        'is_reserved' => '0',
-        'is_active' => '1'
-      ];
-      $this->createOrGetRelationshipType($params);
-    }
-  }
-
-  public function generateRelName($role) {
-    $labelAB = 'is ' . $role . ' of';
-    $nameAB = strtolower(CRM_Utils_String::munge($labelAB));
-    $labelBA = 'has as ' . $role;
-    $nameBA = strtolower(CRM_Utils_String::munge($labelBA));
-    return [$nameAB, $labelAB, $nameBA, $labelBA];
-  }
-
-  public function createContactType($baseContact, $name, $label) {
-    try {
-      $ret = civicrm_api3('ContactType', 'getsingle', [
-        'name' => $name,
-      ]);
-    }
-    catch (Exception $e) {
-      if ($baseContact == 'Organization') {
-        $parentId = 3;
-      }
-      else {
-        $parentId = 1;
-      }
-
-      $ret = civicrm_api3('ContactType', 'create', [
-        'name' => $name,
-        'label' => $label,
-        'is_active' => 1,
-        'parent_id' => $parentId,
-      ]);
-    }
-
-    return $ret;
   }
 
   public function createOrGetGroup($title, $parentId) {
@@ -303,18 +193,6 @@ class CRM_Importmeps_Helper {
     return $ret;
   }
 
-  private function createOrGetRelationshipType($params) {
-    try {
-      $relType = civicrm_api3('RelationshipType', 'getsingle', [
-        'name_a_b' => $params['name_a_b'],
-        'name_b_a' => $params['name_b_a'],
-      ]);
-    }
-    catch (Exception $e) {
-      $relType = civicrm_api3('RelationshipType', 'create', $params);
-    }
 
-    return $relType;
-  }
 
 }

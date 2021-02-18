@@ -3,75 +3,62 @@
 use CRM_Importmeps_ExtensionUtil as E;
 
 class CRM_Importmeps_Form_Import extends CRM_Core_Form {
-  private $queue;
-  private $queueName = 'osepimeps';
-
-  public function __construct() {
-    // create the queue
-    $this->queue = CRM_Queue_Service::singleton()->create([
-      'type' => 'Sql',
-      'name' => $this->queueName,
-      'reset' => TRUE, // flush queue upon creation
-    ]);
-
-    parent::__construct();
-  }
 
   public function buildQuickForm() {
-    $tasks = [
-      'config' => 'Create config items',
-      'check_persons' => 'Check if persons exists',
-      'import_persons' => 'Import persons',
-      'import_rels' => 'Import relationships',
-    ];
+    $tasks = $this->getTasks();
     $this->addRadio('import_tasks', 'Task', $tasks, [], '<br>', TRUE);
 
-    $this->addButtons(array(
-      array(
-        'type' => 'submit',
-        'name' => E::ts('Submit'),
-        'isDefault' => TRUE,
-      ),
-    ));
+    $buttons = $this->getButtons();
+    $this->addButtons($buttons);
 
-    // export form elements
     $this->assign('elementNames', $this->getRenderableElementNames());
+
     parent::buildQuickForm();
   }
 
   public function postProcess() {
-    $helper = new CRM_Importmeps_Helper();
+    $task = $this->getSubmittedTask();
+    if ($task == 'config') {
+      $config = new CRM_Importmeps_Config();
+      $config->create();
+    }
+    elseif ($task == 'import_ep_orgs') {
+      $ep = new CRM_Importmeps_EuroParliament();
+      $ep->importOrgs();
+    }
+    elseif ($task == 'import_ep_persons') {
+      $ep = new CRM_Importmeps_EuroParliament();
+      $ep->importPersons();
+    }
 
+    CRM_Core_Session::setStatus('Done', $task, 'status');
+  }
+
+  private function getSubmittedTask() {
     $values = $this->exportValues();
-    if ($values['import_tasks'] == 'config') {
-      $helper->createConfig();
-    }
-    elseif ($values['import_tasks'] == 'check_persons') {
-      $txt = $helper->analyze();
-      CRM_Core_Session::setStatus($txt, '', 'no-popup');
-    }
-    elseif ($values['import_tasks'] == 'import_persons') {
-      // put items in the queue
-      $sql = "select contact_id from tmp_persons order by last_name";
-      $dao = CRM_Core_DAO::executeQuery($sql);
-      $class = 'CRM_Importmeps_Helper';
-      $method = 'importPersons';
-      while ($dao->fetch()) {
-        $task = new CRM_Queue_Task([$class, $method], [$dao->contact_id]);
-        $this->queue->createItem($task);
-      }
+    return $values['import_tasks'];
+  }
 
-      // run the queue
-      $runner = new CRM_Queue_Runner([
-        'title' => 'Import MEPs',
-        'queue' => $this->queue,
-        'errorMode'=> CRM_Queue_Runner::ERROR_CONTINUE,
-        'onEndUrl' => CRM_Utils_System::url('civicrm/importmeps', 'reset=1'),
-      ]);
-      $runner->runAllViaWeb();
-    }
+  private function getTasks() {
+    $tasks = [
+      'config' => 'Create config items',
+      'import_ep_orgs' => 'Import EP Organizations',
+      'import_ep_persons' => 'Import persons',
+    ];
 
-    CRM_Core_Session::setStatus('Done', '', 'status');
+    return $tasks;
+  }
+
+  private function getButtons() {
+    $buttons = [
+      [
+        'type' => 'submit',
+        'name' => E::ts('Submit'),
+        'isDefault' => TRUE,
+      ],
+    ];
+
+    return $buttons;
   }
 
 
