@@ -16,7 +16,8 @@ class CRM_Importmeps_Config {
     $this->createContactType('Organization', 'perm_rep', 'Perm Rep');
 
     $this->createCountryGroups();
-    $this->createRelationshipTypes();
+    $this->createRelationshipTypes('tmp_ep_roles');
+    $this->createRelationshipTypes('tmp_ec_roles');
   }
 
   private function createContactType($baseContact, $name, $label) {
@@ -47,15 +48,15 @@ class CRM_Importmeps_Config {
   private function createCountryGroups() {
     $helper = new CRM_Importmeps_Helper();
     $parentId = $helper->createOrGetGroup('Countries of Representation', 0)['id'];
-    $sql = "select distinct  country_of_representation FROM tmp_persons order by 1";
+    $sql = "select distinct  country_of_representation FROM tmp_ep_persons order by 1";
     $dao = CRM_Core_DAO::executeQuery($sql);
     while ($dao->fetch()) {
       $helper->createOrGetGroup($dao->country_of_representation, $parentId);
     }
   }
 
-  private function createRelationshipTypes() {
-    $sql = "select role from tmp_ep_roles order by 1";
+  private function createRelationshipTypes($table) {
+    $sql = "select role from $table order by 1";
     $dao = CRM_Core_DAO::executeQuery($sql);
     while ($dao->fetch()) {
       list($nameAB, $labelAB, $nameBA, $labelBA) = $this->generateRelName($dao->role);

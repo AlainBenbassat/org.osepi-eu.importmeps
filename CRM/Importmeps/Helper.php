@@ -21,6 +21,33 @@ class CRM_Importmeps_Helper {
     }
   }
 
+  public function importOrgNoStrictSubtype($tableName, $contactSubtype) {
+    $sql = "select * from $tableName";
+    $dao = CRM_Core_DAO::executeQuery($sql);
+    while ($dao->fetch()) {
+      // check if the contact exists
+      $params = [
+        'contact_type' => 'Organization',
+        'organization_name' => $dao->name,
+        'sequential' => 1,
+      ];
+      $result = civicrm_api3('Contact', 'get', $params);
+      if ($result['count'] == 0) {
+        // create it
+        $params['contact_sub_type'] = $contactSubtype;
+        civicrm_api3('Contact', 'create', $params);
+      }
+      else {
+        // update the contact sub type
+        $params = [
+          'id' => $result['values'][0]['id'],
+          'contact_sub_type' => $contactSubtype,
+        ];
+        civicrm_api3('Contact', 'create', $params);
+      }
+    }
+  }
+
   public function checkEmployer($contactId, $jobTitle, $currentEmployerId) {
     $params = [
       'id' => $contactId,
@@ -88,7 +115,49 @@ class CRM_Importmeps_Helper {
     }
   }
 
-  public function checkWorkAddress($contactId, $streetAddress, $supplementalAddress1, $postalCode, $city) {
+  public function checkTags($contactId, $dao) {
+    if ($dao->tags_1) {
+      $i = 1;
+      while (property_exists($dao, "tags_$i")) {
+        $field = "tags_$i";
+        $params = [
+          'entity_table' => 'civicrm_contact',
+          'entity_id' => $contactId,
+          'tag_id' => $dao->$field,
+        ];
+        try {
+          $result = civicrm_api3('EntityTag', 'create', $params);
+        }
+        catch (Exception $e) {
+          watchdog('alain', "Cannot create tag '" . $dao->$field . "'");
+        }
+
+        $i++;
+      }
+    }
+  }
+
+  public function checkOsepiDepartment($contactId, $department) {
+    if ($department) {
+      $params = [
+        'id' => $contactId,
+        'custom_7' => $department,
+      ];
+      $result = civicrm_api3('Contact', 'create', $params);
+    }
+  }
+
+  public function checkOsepiDepartment2($contactId, $department) {
+    if ($department) {
+      $params = [
+        'id' => $contactId,
+        'custom_16' => $department,
+      ];
+      $result = civicrm_api3('Contact', 'create', $params);
+    }
+  }
+
+  public function checkWorkAddress($contactId, $streetAddress, $supplementalAddress1, $postalCode, $city, $country) {
     if ($streetAddress) {
       $params = [
         'contact_id' => $contactId,
@@ -105,19 +174,32 @@ class CRM_Importmeps_Helper {
         $params['supplemental_address_1'] = $supplementalAddress1;
         $params['postal_code'] = $postalCode;
         $params['city'] = $city;
-        $params['country_id'] = 1020;
+        $params['country_id'] = $this->getCountryId($country);
         civicrm_api3('Address', 'create', $params);
       }
     }
   }
 
-  /**
-   * TODO Refactor so it's not dependend on tmp_ep_members!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   */
-  public function checkRelationships($contactId, $firstName, $lastName) {
+  private function getCountryId($country) {
+    $countryId = 0;
+
+    if ($country == 'Belgium') {
+      $countryId = 1020;
+    }
+    else {
+      $countryId = CRM_Core_DAO::singleValueQuery("select id from civicrm_country where name = %1", [1 => [$country, 'String']]);
+      if (!$countryId) {
+         throw new Exception("Cannot find id of country '$country'");
+      }
+    }
+
+    return $countryId;
+  }
+
+  public function checkRelationships($table, $contactId, $firstName, $lastName) {
     $config = new CRM_Importmeps_Config();
 
-    $sql = "select * from tmp_ep_members where first_name = %1 and last_name = %2";
+    $sql = "select * from $table where first_name = %1 and last_name = %2";
     $sqlParams = [
       1 => [$firstName, 'String'],
       2 => [$lastName, 'String'],
@@ -130,7 +212,7 @@ class CRM_Importmeps_Helper {
       // check if the relationship exists
       $params = [
         'contact_id_a' => $contactId,
-        'contact_id_b' => $this->getEpOrgId($dao->name, $dao->type),
+        'contact_id_b' => $this->getOrgId($dao->name, $dao->type),
         'relationship_type_id' => $config->createOrGetRelationshipType(['name_a_b' => $nameAB, 'name_b_a' => $nameBA])['id'],
         'is_active' => 1,
       ];
@@ -141,13 +223,19 @@ class CRM_Importmeps_Helper {
     }
   }
 
-  public function getEpOrgId($name, $type) {
+  public function getOrgId($name, $type) {
     $sql = "select id from civicrm_contact where organization_name = %1 and contact_sub_type like %2";
     $sqlParams = [
       1 => [$name, 'String'],
-      2 => ['%ep_' . $type . '%', 'String'],
+      2 => ['%' . $type . '%', 'String'],
     ];
-    return CRM_Core_DAO::singleValueQuery($sql, $sqlParams);
+    $id = CRM_Core_DAO::singleValueQuery($sql, $sqlParams);
+    if ($id > 0) {
+      return $id;
+    }
+    else {
+      throw new Exception("Cant find contact '$name' of type '$type'");
+    }
   }
 
   public function createOrGetPerson($prefix, $firstName, $lastName) {
@@ -165,7 +253,7 @@ class CRM_Importmeps_Helper {
     }
     elseif ($result['count'] == 1) {
       // update the source
-      CRM_Core_DAO::executeQuery("update civicrm_contact set source = 'DODS Bulk Import - updated contact' where source not like 'DODS Bulk Import%' and id = " . $result['values'][0]['id']);
+      CRM_Core_DAO::executeQuery("update civicrm_contact set source = 'DODS Bulk Import - updated contact' where ifnull(source, '') not like 'DODS Bulk Import%' and id = " . $result['values'][0]['id']);
 
       // return the existing contact
       return $result['values'][0];

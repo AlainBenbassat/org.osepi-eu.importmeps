@@ -1,21 +1,21 @@
 <?php
 
-class CRM_Importmeps_EuroCommission {
+class CRM_Importmeps_PermReps {
   public function importOrgs() {
     $helper = new CRM_Importmeps_Helper();
 
-    $helper->importOrg('tmp_ec_dgs', 'ec_directorate_general');
-    $helper->importOrg('tmp_ec_cabinets', 'ec_cabinet_college');
+    $helper->importOrgNoStrictSubtype('tmp_permreps', 'perm_rep');
   }
 
-  public function importEcPersons($table) {
+  public function importPersons() {
+    $table = 'tmp_permreps_persons';
     $queue = new CRM_Importmeps_Queue($table);
 
     // put items in the queue
     $sql = "select id from $table";
     $dao = CRM_Core_DAO::executeQuery($sql);
-    $class = 'CRM_Importmeps_EuroCommission';
-    $method = 'importEcPersonTask';
+    $class = 'CRM_Importmeps_PermReps';
+    $method = 'importPersonTask';
     while ($dao->fetch()) {
       $queue->addTask($class, $method, [$table, $dao->id]);
     }
@@ -23,7 +23,7 @@ class CRM_Importmeps_EuroCommission {
     $queue->run();
   }
 
-  public static function importEcPersonTask(CRM_Queue_TaskContext $ctx, $table, $id) {
+  public static function importPersonTask(CRM_Queue_TaskContext $ctx, $table, $id) {
     $helper = new CRM_Importmeps_Helper();
 
     try {
@@ -39,22 +39,9 @@ class CRM_Importmeps_EuroCommission {
       $helper->checkEmployer($contact['id'], $dao->job_title, $dao->employer_id);
       $helper->checkEmail($contact['id'], $dao->email);
       $helper->checkPhone($contact['id'], $dao->phone);
-
-      if (property_exists($dao, 'osepi_department')) {
-        $helper->checkOsepiDepartment($contact['id'], $dao->osepi_department);
-      }
-
-      if (property_exists($dao, 'role')) {
-        $helper->checkRelationships($table, $contact['id'], $dao->first_name, $dao->last_name);
-      }
-
-      if (property_exists($dao, 'street_address')) {
-        $helper->checkWorkAddress($contact['id'], $dao->street_address, $dao->supplemental_address1, $dao->postal_code, $dao->city, $dao->country);
-      }
-
-      if (property_exists($dao, 'tags_1')) {
-        $helper->checkTags($contact['id'], $dao);
-      }
+      $helper->checkOsepiDepartment($contact['id'], $dao->osepi_department);
+      $helper->checkOsepiDepartment2($contact['id'], $dao->osepi_department2);
+      $helper->checkTags($contact['id'], $dao);
     }
     catch (Exception $e) {
       watchdog('importEcPersonTask', $e->getMessage());
@@ -62,4 +49,6 @@ class CRM_Importmeps_EuroCommission {
 
     return TRUE;
   }
+
+
 }

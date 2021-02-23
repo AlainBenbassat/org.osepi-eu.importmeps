@@ -30,6 +30,33 @@ class CRM_Importmeps_Form_Import extends CRM_Core_Form {
       $ep = new CRM_Importmeps_EuroParliament();
       $ep->importPersons();
     }
+    elseif ($task == 'import_ec_orgs') {
+      $ep = new CRM_Importmeps_EuroCommission();
+      $ep->importOrgs();
+    }
+    elseif ($task == 'import_ec_cabinet_persons') {
+      $ep = new CRM_Importmeps_EuroCommission();
+      $ep->importEcPersons('tmp_ec_cabinet_persons');
+    }
+    elseif ($task == 'import_ec_dg_persons') {
+      $ep = new CRM_Importmeps_EuroCommission();
+      $ep->importEcPersons('tmp_ec_dg_persons');
+    }
+    elseif ($task == 'import_ec_eeas_persons') {
+      $ep = new CRM_Importmeps_EuroCommission();
+      $ep->importEcPersons('tmp_ec_eeas_persons');
+    }
+    elseif ($task == 'import_permreps_orgs') {
+      $ep = new CRM_Importmeps_PermReps();
+      $ep->importOrgs();
+    }
+    elseif ($task == 'import_permreps_persons') {
+      $ep = new CRM_Importmeps_PermReps();
+      $ep->importPersons();
+    }
+    else {
+      $task .= ' is not implemented!';
+    }
 
     CRM_Core_Session::setStatus('Done', $task, 'status');
   }
@@ -40,10 +67,18 @@ class CRM_Importmeps_Form_Import extends CRM_Core_Form {
   }
 
   private function getTasks() {
+    $sep = '<br>--------------------------------------------------------------';
+
     $tasks = [
-      'config' => 'Create config items',
+      'config' => 'Create config items' . $sep,
       'import_ep_orgs' => 'Import EP Organizations',
-      'import_ep_persons' => 'Import persons',
+      'import_ep_persons' => 'Import EP persons' . $sep,
+      'import_ec_orgs' => 'Import EC Organizations',
+      'import_ec_cabinet_persons' => 'Import EC Cabinet Persons',
+      'import_ec_dg_persons' => 'Import EC DG Persons',
+      'import_ec_eeas_persons' => 'Import EEAS Persons' . $sep,
+      'import_permreps_orgs' => 'Import PermReps',
+      'import_permreps_persons' => 'Import PermReps Persons',
     ];
 
     return $tasks;

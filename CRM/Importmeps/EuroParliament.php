@@ -15,7 +15,7 @@ class CRM_Importmeps_EuroParliament {
     $queue = new CRM_Importmeps_Queue('osepi_ep_persons');
 
     // put items in the queue
-    $sql = "select contact_id from tmp_ep_persons order by last_name limit 0,10";
+    $sql = "select contact_id from tmp_ep_persons order by last_name";
     $dao = CRM_Core_DAO::executeQuery($sql);
     $class = 'CRM_Importmeps_EuroParliament';
     $method = 'importPersonTask';
@@ -42,12 +42,12 @@ class CRM_Importmeps_EuroParliament {
       $helper->checkEmployer($contact['id'], 'MEP', 414);
       $helper->checkEmail($contact['id'], $dao->email);
       $helper->checkPhone($contact['id'], $dao->phone);
-      $helper->checkWorkAddress($contact['id'], $dao->street_address, $dao->supplemental_address1, $dao->postal_code, $dao->city);
+      $helper->checkWorkAddress($contact['id'], $dao->street_address, $dao->supplemental_address1, $dao->postal_code, $dao->city, 'Belgium');
       $helper->checkCountryOfRepresentation($contact['id'], $dao->country_of_representation);
       $helper->checkTwitter($contact['id'], $dao->twitter);
 
       // add relationships
-      $helper->checkRelationships($contact['id'], $dao->first_name, $dao->last_name);
+      $helper->checkRelationships('tmp_ep_members', $contact['id'], $dao->first_name, $dao->last_name);
     }
     catch (Exception $e) {
       watchdog('import MEPs', $e->getMessage());
