@@ -36,7 +36,7 @@ class CRM_Importmeps_EuroParliament {
       $dao->fetch();
 
       // does the contact exist?
-      $contact = $helper->createOrGetPerson($dao->prefix, $dao->first_name, $dao->last_name);
+      $contact = $helper->createOrGetPerson($dao->prefix, $dao->first_name, $dao->last_name, $dao->email);
 
       // check additional stuff
       $helper->checkEmployer($contact['id'], 'MEP', 414);

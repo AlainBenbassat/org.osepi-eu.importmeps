@@ -33,7 +33,7 @@ class CRM_Importmeps_PermReps {
       $dao->fetch();
 
       // does the contact exist?
-      $contact = $helper->createOrGetPerson($dao->prefix, $dao->first_name, $dao->last_name);
+      $contact = $helper->createOrGetPerson($dao->prefix, $dao->first_name, $dao->last_name, $dao->email);
 
       // check additional stuff
       $helper->checkEmployer($contact['id'], $dao->job_title, $dao->employer_id);

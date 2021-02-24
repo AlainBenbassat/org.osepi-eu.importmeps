@@ -120,16 +120,17 @@ class CRM_Importmeps_Helper {
       $i = 1;
       while (property_exists($dao, "tags_$i")) {
         $field = "tags_$i";
-        $params = [
-          'entity_table' => 'civicrm_contact',
-          'entity_id' => $contactId,
-          'tag_id' => $dao->$field,
-        ];
-        try {
-          $result = civicrm_api3('EntityTag', 'create', $params);
-        }
-        catch (Exception $e) {
-          watchdog('alain', "Cannot create tag '" . $dao->$field . "'");
+        if ($dao->$field) {
+          $params = [
+            'entity_table' => 'civicrm_contact',
+            'entity_id' => $contactId,
+            'tag_id' => $dao->$field,
+          ];
+          try {
+            $result = civicrm_api3('EntityTag', 'create', $params);
+          } catch (Exception $e) {
+            watchdog('alain', "Cannot create tag '" . $dao->$field . "'");
+          }
         }
 
         $i++;
@@ -238,30 +239,185 @@ class CRM_Importmeps_Helper {
     }
   }
 
-  public function createOrGetPerson($prefix, $firstName, $lastName) {
+  public function createOrGetPerson($prefix, $firstName, $lastName, $email) {
+    $contactIds = [];
+    $numberOfContactsFound = 0;
+    $contactId = 0;
+
+    // find contact by email
+    if ($email) {
+      $contactIds = $this->findPersonByEmail($email);
+    }
+    $numberOfContactsFound = count($contactIds);
+
+    if ($numberOfContactsFound == 1) {
+      // found just 1 contact, take that one
+      $contactId = $contactIds[0];
+    }
+    elseif ($numberOfContactsFound == 0) {
+      // try by name
+      $contactIds = $this->findPersonByName($firstName, $lastName);
+
+      if (count($contactIds) >= 1) {
+        $contactId = $contactIds[0];
+      }
+    }
+    else {
+      // more than 1 contact found by email, try by name and email
+      $contactIds = $this->findPersonByNameAndEmail($firstName, $lastName, $email);
+
+      if (count($contactIds) >= 1) {
+        $contactId = $contactIds[0];
+      }
+    }
+
+    if ($contactId) {
+      $this->updateSource($contactId);
+
+      $contact = $this->getIndividual($contactId);
+    }
+    else {
+      $contact = $this->createIndividual($prefix, $firstName, $lastName);
+    }
+
+    return $contact;
+  }
+
+  private function updateSource($contactId) {
+    CRM_Core_DAO::executeQuery("update civicrm_contact set source = 'DODS Bulk Import - updated contact' where ifnull(source, '') not like 'DODS Bulk Import%' and id = $contactId");
+  }
+
+  private function getIndividual($contactId) {
+    $contact = civicrm_api3('Contact', 'getsingle', [
+      'id' => $contactId,
+      'contact_type' => 'Individual',
+      'sequential' => 1,
+    ]);
+
+    return $contact;
+  }
+
+  private function createIndividual($prefix, $firstName, $lastName) {
     $params = [
       'first_name' => $firstName,
       'last_name' => $lastName,
+      'prefix_id' => $this->getPrefixId($prefix),
       'contact_type' => 'Individual',
+      'source' => 'DODS Bulk Import - new contact',
       'sequential' => 1,
     ];
-    $result = civicrm_api3('Contact', 'get', $params);
-    if ($result['count'] == 0) {
-      // create the contact
-      $params['source'] = 'DODS Bulk Import - new contact';
-      return civicrm_api3('Contact', 'create', $params);
-    }
-    elseif ($result['count'] == 1) {
-      // update the source
-      CRM_Core_DAO::executeQuery("update civicrm_contact set source = 'DODS Bulk Import - updated contact' where ifnull(source, '') not like 'DODS Bulk Import%' and id = " . $result['values'][0]['id']);
+    $contact = civicrm_api3('Contact', 'create', $params);
 
-      // return the existing contact
-      return $result['values'][0];
+    return $contact;
+  }
+
+  private function getPrefixId($prefix) {
+    if ($prefix == 'Ms') {
+      return 2;
+    }
+    elseif ($prefix == 'Mr') {
+      return 3;
+    }
+    elseif ($prefix == 'Dr') {
+      return 4;
     }
     else {
-      // more than 1
-      throw new Exception("Dedupe $firstName $lastName");
+      return 0;
     }
+  }
+
+  private function findPersonByEmail($email) {
+    $contactIds = [];
+
+    $sql = "
+      select
+        c.id
+      from
+        civicrm_contact c
+      inner join
+        civicrm_email e on e.contact_id = c.id
+      where
+        c.contact_type = 'Individual'
+      and
+        c.is_deleted = 0
+      and
+        e.email = %1
+    ";
+    $sqlParams = [
+      1 => [$email, 'String'],
+    ];
+    $dao = CRM_Core_DAO::executeQuery($sql, $sqlParams);
+
+    while ($dao->fetch()) {
+      $contactIds[] = $dao->id;
+    }
+
+    return $contactIds;
+  }
+
+  private function findPersonByNameAndEmail($firstName, $lastName, $email) {
+    $contactIds = [];
+
+    $sql = "
+      select
+        c.id
+      from
+        civicrm_contact c
+      inner join
+        civicrm_email e on e.contact_id = c.id
+      where
+        c.contact_type = 'Individual'
+      and
+        c.is_deleted = 0
+      and
+        e.email = %1
+      and
+        c.first_name = %2
+      and
+        c.last_name = %3
+    ";
+    $sqlParams = [
+      1 => [$email, 'String'],
+      2 => [$firstName, 'String'],
+      3 => [$lastName, 'String'],
+    ];
+    $dao = CRM_Core_DAO::executeQuery($sql, $sqlParams);
+
+    while ($dao->fetch()) {
+      $contactIds[] = $dao->id;
+    }
+
+    return $contactIds;
+  }
+
+  private function findPersonByName($firstName, $lastName) {
+    $contactIds = [];
+
+    $sql = "
+      select
+        c.id
+      from
+        civicrm_contact c
+      where
+        c.contact_type = 'Individual'
+      and
+        c.is_deleted = 0
+      and
+        c.first_name = %1
+      and
+        c.last_name = %2
+    ";
+    $sqlParams = [
+      1 => [$firstName, 'String'],
+      2 => [$lastName, 'String'],
+    ];
+    $dao = CRM_Core_DAO::executeQuery($sql, $sqlParams);
+
+    while ($dao->fetch()) {
+      $contactIds[] = $dao->id;
+    }
+
+    return $contactIds;
   }
 
   public function createOrGetGroup($title, $parentId) {
