@@ -217,7 +217,7 @@ class CRM_Importmeps_Helper {
     elseif ($country == 'Republic of Congo') {
       $countryId = 1051;
     }
-    elseif ($country == 'West Bank and Gaza Strip') {
+    elseif ($country == 'West Bank and Gaza Strip, UNRWA') {
       $countryId = 1165;
     }
     elseif ($country == 'Democratic Republic of Congo') {
