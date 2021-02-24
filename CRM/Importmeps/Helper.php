@@ -10,9 +10,12 @@ class CRM_Importmeps_Helper {
         'contact_type' => 'Organization',
         'contact_sub_type' => $contactSubtype,
         'organization_name' => $dao->name,
-        'nick_name' => $dao->abbr,
         'sequential' => 1,
       ];
+      if (property_exists($dao, 'abbr')) {
+        $params['nick_name'] = $dao->abbr;
+      }
+
       $result = civicrm_api3('Contact', 'get', $params);
       if ($result['count'] == 0) {
         // create it
@@ -73,16 +76,40 @@ class CRM_Importmeps_Helper {
 
   public function checkEmail($contactId, $email) {
     if ($email) {
-      $params = [
-        'contact_id' => $contactId,
-        'email' => $email,
-      ];
-      $result = civicrm_api3('Email', 'get', $params);
-      if ($result['count'] == 0) {
-        $params['is_primary'] = 1;
-        civicrm_api3('Email', 'create', $params);
+      $primaryEmail = $this->getPrimaryEmail($contactId);
+      if ($primaryEmail != $email) {
+        $this->deleteAllEmail($contactId);
+        $this->addPrimaryEmail($contactId, $email);
       }
     }
+  }
+
+  private function getPrimaryEmail($contactId) {
+    $params = [
+      'contact_id' => $contactId,
+      'is_primary' => 1,
+      'sequential' => 1,
+    ];
+    $email = civicrm_api3('Email', 'get', $params);
+    if ($email['count'] > 0) {
+      return $email['values'][0]['email'];
+    }
+    else {
+      return '';
+    }
+  }
+
+  private function deleteAllEmail($contactId) {
+    CRM_Core_DAO::executeQuery("delete from civicrm_email where contact_id = $contactId");
+  }
+
+  private function addPrimaryEmail($contactId, $email) {
+    $params = [
+      'contact_id' => $contactId,
+      'email' => $email,
+      'is_primary' => 1,
+    ];
+    civicrm_api3('Email', 'create', $params);
   }
 
   public function checkTwitter($contactId, $twitter) {
@@ -186,6 +213,18 @@ class CRM_Importmeps_Helper {
 
     if ($country == 'Belgium') {
       $countryId = 1020;
+    }
+    elseif ($country == 'Republic of Congo') {
+      $countryId = 1051;
+    }
+    elseif ($country == 'West Bank and Gaza Strip') {
+      $countryId = 1165;
+    }
+    elseif ($country == 'Democratic Republic of Congo') {
+      $countryId = 1050;
+    }
+    elseif ($country == 'Cabo Verde') {
+      $countryId = 1040;
     }
     else {
       $countryId = CRM_Core_DAO::singleValueQuery("select id from civicrm_country where name = %1", [1 => [$country, 'String']]);

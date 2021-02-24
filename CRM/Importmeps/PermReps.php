@@ -36,7 +36,8 @@ class CRM_Importmeps_PermReps {
       $contact = $helper->createOrGetPerson($dao->prefix, $dao->first_name, $dao->last_name, $dao->email);
 
       // check additional stuff
-      $helper->checkEmployer($contact['id'], $dao->job_title, $dao->employer_id);
+      $employer_id = $helper->getOrgId($dao->employer, 'perm_rep');
+      $helper->checkEmployer($contact['id'], $dao->job_title, $employer_id);
       $helper->checkEmail($contact['id'], $dao->email);
       $helper->checkPhone($contact['id'], $dao->phone);
       $helper->checkOsepiDepartment($contact['id'], $dao->osepi_department);
