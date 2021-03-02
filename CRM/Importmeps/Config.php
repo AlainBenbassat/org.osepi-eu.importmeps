@@ -11,6 +11,7 @@ class CRM_Importmeps_Config {
     // European Commission
     $this->createContactType('Organization', 'ec_directorate_general', 'EC Directorate General'); // e.g. DG AGRI
     $this->createContactType('Organization', 'ec_cabinet_college', 'EC Cabinet / College'); // e.g. Cabinet of Elisa Ferreira - Cohesion and Reforms
+    $this->createContactType('Organization', 'ec_service', 'EC Service'); //e.g. EEAS
 
     // PermReps
     $this->createContactType('Organization', 'perm_rep', 'Perm Rep');
